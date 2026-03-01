@@ -9,12 +9,12 @@ import { GuidedStage } from './GuidedStage'
 import { ResultDisplay } from './ResultDisplay'
 import { GDPRFooter } from './GDPRFooter'
 
-type Stage = 'landing' | 'analysing' | 'ai-result' | 'guided' | 'result'
+type Stage = 'landing' | 'analysing' | 'ai-result' | 'guided'
 
 export function GDPRChecker() {
   const [stage, setStage] = useState<Stage>('landing')
   const [scenario, setScenario] = useState('')
-  const [verdict, setVerdict] = useState<Verdict | null>(null)
+  const [aiVerdict, setAiVerdict] = useState<Verdict | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
 
   async function handleAnalyse(text: string, apiKey: string) {
@@ -37,21 +37,19 @@ export function GDPRChecker() {
           messages: [
             {
               role: 'user',
-              content: `You are a GDPR legal analysis assistant. Analyse the following scenario and respond ONLY with a valid JSON object matching this exact structure:
+              content: `You are a GDPR legal analysis assistant. Analyse the following scenario and respond ONLY with a valid JSON object matching this exact structure — no markdown, no code blocks, just raw JSON:
 
 {
   "key": "strong" | "possible" | "limited" | "none",
   "label": "Strong Case" | "Possible Claim" | "Limited Basis" | "No Clear Claim",
-  "title": "short title (max 10 words)",
-  "summary": "2-3 sentence summary of the GDPR analysis",
-  "rights": ["Right name — Art. X", ...],
-  "actions": ["Action description", ...],
-  "legalRef": "GDPR Art. X (Name) · ..."
+  "title": "short title summarising the verdict (max 10 words)",
+  "summary": "2-3 sentences explaining the GDPR analysis for this scenario",
+  "rights": ["Right name — Art. X", "..."],
+  "actions": ["Concrete action description", "..."],
+  "legalRef": "GDPR Art. X (Name) · Art. Y (Name)"
 }
 
-Scenario: ${text}
-
-Respond ONLY with the JSON object, no other text.`,
+Scenario: ${text}`,
             },
           ],
         }),
@@ -63,9 +61,9 @@ Respond ONLY with the JSON object, no other text.`,
       }
 
       const data = await res.json() as { content: { type: string; text: string }[] }
-      const text_content = data.content.find((c) => c.type === 'text')?.text ?? ''
-      const parsed = JSON.parse(text_content) as Verdict
-      setVerdict(parsed)
+      const textContent = data.content.find((c) => c.type === 'text')?.text ?? ''
+      const parsed = JSON.parse(textContent) as Verdict
+      setAiVerdict(parsed)
       setStage('ai-result')
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'Unknown error')
@@ -73,14 +71,9 @@ Respond ONLY with the JSON object, no other text.`,
     }
   }
 
-  function handleGuidedResult(v: Verdict) {
-    setVerdict(v)
-    setStage('result')
-  }
-
   function restart() {
     setStage('landing')
-    setVerdict(null)
+    setAiVerdict(null)
     setScenario('')
     setAiError(null)
   }
@@ -119,8 +112,11 @@ Respond ONLY with the JSON object, no other text.`,
 
         <main className="flex-1">
           <div className="max-w-[680px] mx-auto px-[18px]">
+
+            {/* Hero only on landing/analysing */}
             {(stage === 'landing' || stage === 'analysing') && <Hero />}
 
+            {/* API error */}
             {aiError && (
               <div
                 className="mt-4 px-4 py-3 rounded-lg text-[0.82rem] text-gdpr-or"
@@ -139,29 +135,18 @@ Respond ONLY with the JSON object, no other text.`,
 
             {stage === 'analysing' && <AnalysingStage />}
 
-            {stage === 'ai-result' && verdict && (
-              <div className="mt-0">
-                <ResultDisplay
-                  verdict={verdict}
-                  scenario={scenario}
-                  onRestart={restart}
-                  onContinueGuided={() => setStage('guided')}
-                />
-              </div>
-            )}
-
-            {stage === 'guided' && (
-              <GuidedStage
-                onResult={handleGuidedResult}
-                onBack={() => setStage('landing')}
-              />
-            )}
-
-            {stage === 'result' && verdict && (
+            {stage === 'ai-result' && aiVerdict && (
               <ResultDisplay
-                verdict={verdict}
+                verdict={aiVerdict}
+                scenario={scenario}
                 onRestart={restart}
+                onContinueGuided={() => setStage('guided')}
               />
+            )}
+
+            {/* Guided stage manages its own result display internally */}
+            {stage === 'guided' && (
+              <GuidedStage onBack={() => setStage('landing')} />
             )}
 
             <div className="pb-10" />
