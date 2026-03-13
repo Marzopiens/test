@@ -769,6 +769,211 @@ export function getNextQuestion(answers: TriageAnswers): EngineQuestion | null {
   return null
 }
 
+// ============================================================
+// SCENARIO INFERENCE
+// ============================================================
+
+/**
+ * Keyword-based inference from a user scenario text.
+ * Returns partial answers — only fields with clear evidence.
+ */
+export function inferAnswersFromText(scenario: string): TriageAnswers {
+  const t = scenario.toLowerCase()
+  const inferred: TriageAnswers = {}
+
+  // Personal data is always YES if the user is describing a GDPR situation
+  inferred.pd_1 = 'YES'
+  inferred.id_1 = 'DIRECT'
+
+  // ── Actor
+  if (/\b(employer|boss|hr|human resources|workplace|my company|my employer|manager|supervisor|at work)\b/.test(t)) {
+    inferred.ctx_actor = 'EMPLOYER'
+  } else if (/\b(government|police|state|ministry|authority|public authority|municipality|council|court|tribunal)\b/.test(t)) {
+    inferred.ctx_actor = 'STATE'
+  } else if (/\b(facebook|google|twitter|instagram|tiktok|amazon|apple|meta|linkedin|youtube|platform|app|website|online service)\b/.test(t)) {
+    inferred.ctx_actor = 'PLATFORM'
+  } else if (/\b(doctor|hospital|clinic|gp|nurse|therapist|lawyer|solicitor|accountant|notary)\b/.test(t)) {
+    inferred.ctx_actor = 'PROFESSIONAL'
+  } else if (/\b(company|business|firm|shop|store|retailer|bank|insurance|supplier)\b/.test(t)) {
+    inferred.ctx_actor = 'COMPANY'
+  }
+
+  // ── Format
+  if (/\b(cctv|footage|video|recorded|surveillance camera)\b/.test(t)) {
+    inferred.ctx_format = 'VIDEO'
+  } else if (/\b(photo|image|picture|photograph|face|facial)\b/.test(t)) {
+    inferred.ctx_format = 'IMAGE'
+  } else if (/\b(audio|voice|recording|call|phone call|voicemail)\b/.test(t)) {
+    inferred.ctx_format = 'AUDIO'
+  } else if (/\b(database|spreadsheet|records|log|system|file|csv|excel)\b/.test(t)) {
+    inferred.ctx_format = 'STRUCTURED'
+  } else if (/\b(ip address|ip|cookie|device|tracking|location data|gps|geolocation|metadata)\b/.test(t)) {
+    inferred.ctx_format = 'METADATA'
+  } else {
+    inferred.ctx_format = 'TEXT'
+  }
+
+  // ── Action
+  if (/\b(breach|hacked|hack|leak|leaked|exposed|stolen|data breach|cyberattack|ransomware|unauthorized access)\b/.test(t)) {
+    inferred.ctx_action = 'UNAUTHORIZED_ACCESS'
+    inferred.breach_1 = 'YES'
+  } else if (/\b(published|publicly posted|disclosed publicly|made public|posted online|shared publicly)\b/.test(t)) {
+    inferred.ctx_action = 'PUBLICATION'
+  } else if (/\b(sold|selling|sale|commercial transfer|transferred to third|gave to third|third.party|data broker)\b/.test(t)) {
+    inferred.ctx_action = 'SALE_TRANSFER'
+  } else if (/\b(refuse to delete|refused to delete|won.t delete|not deleting|won.t erase|refused.*erasure|failed to delete|delete.*refused)\b/.test(t)) {
+    inferred.ctx_action = 'INCORRECT_DELETION'
+    inferred.rights_1 = ['ERASURE']
+  } else if (/\b(profil|profiling|scoring|credit score|automated decision|algorithm|algorithmic)\b/.test(t)) {
+    inferred.ctx_action = 'PROFILING'
+    inferred.prof_1 = 'YES'
+  } else if (/\b(transfer|sent abroad|overseas|outside europe|outside eu|us server|american server)\b/.test(t)) {
+    inferred.ctx_action = 'INTL_TRANSFER'
+    inferred.tr_1 = 'YES'
+  } else if (/\b(shared with|disclosed to|communicated to|passed to|sent to)\b/.test(t)) {
+    inferred.ctx_action = 'COMMUNICATION'
+  } else if (/\b(collect|collected|gathering|gathered|obtain)\b/.test(t)) {
+    inferred.ctx_action = 'COLLECTION'
+  } else if (/\b(stored|storing|keeping|kept|retaining|retained|holds my data)\b/.test(t)) {
+    inferred.ctx_action = 'STORAGE'
+  }
+
+  // ── Purpose
+  if (/\b(marketing|advertis|spam|newsletter|promotional|unsubscribe|direct mail|email campaign)\b/.test(t)) {
+    inferred.ctx_purpose = 'MARKETING'
+  } else if (/\b(health|medical|treatment|diagnosis|care|clinical|patient)\b/.test(t)) {
+    inferred.ctx_purpose = 'HEALTH'
+  } else if (/\b(research|study|analysis|academic|survey|statistical)\b/.test(t)) {
+    inferred.ctx_purpose = 'RESEARCH'
+  } else if (/\b(security|fraud prevention|anti.fraud|identity verification|kyc)\b/.test(t)) {
+    inferred.ctx_purpose = 'SECURITY'
+  } else if (/\b(required by law|legal obligation|compliance|regulation|statutory|legal requirement)\b/.test(t)) {
+    inferred.ctx_purpose = 'LEGAL_OBLIGATION'
+  }
+
+  // ── Sensitive categories (Art. 9/10)
+  const sensitive: string[] = []
+  if (/\b(health|medical|diagnosis|illness|disease|patient|clinical|prescription|therapy|mental health)\b/.test(t)) sensitive.push('HEALTH')
+  if (/\b(biometric|fingerprint|face recognition|facial recognition|retina|iris scan)\b/.test(t)) sensitive.push('BIOMETRIC')
+  if (/\b(political|party member|political opinion|vote|voting|ideology)\b/.test(t)) sensitive.push('IDEOLOGY')
+  if (/\b(religion|religious|faith|belief|church|mosque|synagogue|prayer|muslim|christian|jewish|hindu|buddhist)\b/.test(t)) sensitive.push('RELIGION')
+  if (/\b(sexual|orientation|gay|lesbian|bisexual|transgender|lgbt|queer|sex life)\b/.test(t)) sensitive.push('SEXUAL_LIFE')
+  if (/\b(trade union|union membership|labour union|workers union|collective)\b/.test(t)) sensitive.push('TRADE_UNION')
+  if (/\b(child|children|minor|kid|teenager|under 16|under 18|student|pupil|school)\b/.test(t)) sensitive.push('CHILDREN')
+  if (/\b(criminal|conviction|arrest|police record|offence|offense|crime|prosecution|guilty)\b/.test(t)) sensitive.push('CRIMINAL')
+  if (sensitive.length > 0) inferred.sc_1 = sensitive
+
+  // ── Rights exercised
+  const rights: string[] = []
+  if (/\b(subject access request|sar|requested.*copy|access.*data|asked.*data|right to access)\b/.test(t)) rights.push('ACCESS')
+  if (/\b(delete|erasure|right to be forgotten|remove.*data|delete.*account)\b/.test(t)) rights.push('ERASURE')
+  if (/\b(correct|rectif|wrong.*data|inaccurate.*data|fix.*data|update.*data)\b/.test(t)) rights.push('RECTIFICATION')
+  if (/\b(objected|object to|opt.?ed out|opt.?ing out|stop.*process|opposed processing)\b/.test(t)) rights.push('OBJECTION')
+  if (rights.length > 0 && !inferred.rights_1) {
+    inferred.rights_1 = rights
+  }
+
+  // ── Response to rights
+  if (inferred.rights_1) {
+    if (/\b(no response|didn.?t respond|ignored|no reply|silence|no answer)\b/.test(t)) {
+      inferred.rights_2 = 'NO_RESPONSE'
+    } else if (/\b(refused|rejection|rejected|denied|said no|refused to comply)\b/.test(t)) {
+      inferred.rights_2 = 'UNJUSTIFIED_REFUSAL'
+    } else if (/\b(late|overdue|took too long|past.*deadline|after.*month)\b/.test(t)) {
+      inferred.rights_2 = 'LATE'
+    }
+  }
+
+  // ── Breach notification
+  if (inferred.breach_1 === 'YES') {
+    if (/\b(notified me|told me|informed me|sent.*notice|received.*notification|they let me know)\b/.test(t)) {
+      inferred.breach_3 = 'YES'
+    } else if (/\b(never told|not informed|wasn.?t notified|no notification|didn.?t tell me|found out.*myself|found out.*other)\b/.test(t)) {
+      inferred.breach_3 = 'NO'
+    }
+  }
+
+  // ── Impact / harm
+  const impacts: string[] = []
+  if (/\b(financial loss|money|cost|expense|fraud|stolen.*money|economic damage|charged)\b/.test(t)) impacts.push('FINANCIAL')
+  if (/\b(reputation|reputational|embarrass|shame|humiliat|publicly exposed|image damage)\b/.test(t)) impacts.push('REPUTATIONAL')
+  if (/\b(discriminat|fired|termination|denied job|job loss|refused service|excluded)\b/.test(t)) impacts.push('DISCRIMINATION')
+  if (/\b(stress|anxiety|distress|upset|worried|fear|scared|psychological|mental health impact)\b/.test(t)) impacts.push('DISTRESS')
+  if (/\b(risk|future|potential|could be used|worried about)\b/.test(t)) impacts.push('FUTURE_RISK')
+  if (impacts.length > 0) inferred.impact_1 = impacts
+
+  // ── Lawful basis clues
+  if (/\b(gave.*consent|consent.*gave|agreed|gave permission|opted in|signed up|subscribed|ticked)\b/.test(t)) {
+    inferred.lb_main = 'CONSENT'
+  } else if (/\b(contract|terms of service|terms and conditions|service agreement|agreement)\b/.test(t)) {
+    inferred.lb_main = 'CONTRACT'
+  } else if (/\b(legal obligation|required by law|statutory|law.*requires|regulation.*requires)\b/.test(t)) {
+    inferred.lb_main = 'LEGAL_OBLIGATION'
+  }
+
+  return inferred
+}
+
+/**
+ * Claude-based extraction — returns improved inferred answers.
+ * Falls back gracefully on error.
+ */
+export async function extractAnswersWithClaude(
+  scenario: string,
+  apiKey: string,
+): Promise<TriageAnswers> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [
+        {
+          role: 'user',
+          content: `Analyse this GDPR scenario and extract structured information to pre-fill an assessment form.
+Return a JSON object where keys are question IDs and values are answers. ONLY include fields where the scenario provides CLEAR evidence. Omit uncertain fields.
+
+Valid question IDs and values:
+- pd_1: "YES"|"NO"|"UNSURE"
+- id_1: "DIRECT"|"INDIRECT"|"NO"|"UNSURE"
+- ctx_format: "TEXT"|"IMAGE"|"VIDEO"|"AUDIO"|"STRUCTURED"|"METADATA"|"MIXED"
+- ctx_actor: "STATE"|"COMPANY"|"PLATFORM"|"EMPLOYER"|"PROFESSIONAL"|"PERSON"|"UNSURE"
+- ctx_location: "EU"|"OUTSIDE_EU_EU_EFFECTS"|"OUTSIDE_EU"|"UNSURE"
+- ctx_action: "COLLECTION"|"STORAGE"|"INTERNAL_USE"|"COMMUNICATION"|"PUBLICATION"|"SALE_TRANSFER"|"INTL_TRANSFER"|"INCORRECT_DELETION"|"UNAUTHORIZED_ACCESS"|"PROFILING"
+- ctx_purpose: "SERVICE"|"LEGAL_OBLIGATION"|"MARKETING"|"SECURITY"|"RESEARCH"|"STATISTICS"|"HEALTH"|"JUSTICE"|"OTHER"|"UNSURE"
+- lb_main: "CONSENT"|"CONTRACT"|"LEGAL_OBLIGATION"|"VITAL_INTERESTS"|"PUBLIC_TASK"|"LEGITIMATE_INTERESTS"|"UNSURE"
+- sc_1: array from ["HEALTH","BIOMETRIC","IDEOLOGY","RELIGION","SEXUAL_LIFE","TRADE_UNION","CHILDREN","CRIMINAL","NONE"]
+- breach_1: "YES"|"NO"|"UNSURE"
+- breach_3: "YES"|"PARTIAL"|"NO"|"UNSURE"
+- prof_1: "YES"|"NO"|"UNSURE"
+- prof_2: "YES"|"NO"|"UNSURE"
+- tr_1: "YES"|"NO"|"UNSURE"
+- rights_1: array from ["ACCESS","RECTIFICATION","ERASURE","OBJECTION","RESTRICTION","PORTABILITY","NONE"]
+- rights_2: "ON_TIME"|"LATE"|"PARTIAL"|"NO_RESPONSE"|"UNJUSTIFIED_REFUSAL"|"UNSURE"
+- impact_1: array from ["NONE","INCONVENIENCE","REPUTATIONAL","FINANCIAL","DISCRIMINATION","DISTRESS","FUTURE_RISK"]
+- p_transparency: "YES"|"PARTIAL"|"NO"|"UNSURE"
+- p_purpose_change: "YES"|"NO"|"UNSURE"
+
+Be conservative. Only include what is clearly stated. Return only raw JSON, no markdown.
+
+Scenario: ${scenario}`,
+        },
+      ],
+    }),
+  })
+
+  if (!res.ok) throw new Error(`API ${res.status}`)
+  const data = await res.json() as { content: { type: string; text: string }[] }
+  const text = data.content.find((c) => c.type === 'text')?.text ?? '{}'
+  return JSON.parse(text) as TriageAnswers
+}
+
 export function getProgress(answers: TriageAnswers): { current: number; total: number } {
   const answered = QUESTIONS.filter((q) => isAnswered(answers, q.id)).length
   const relevant = QUESTIONS.filter((q) => q.shouldAsk(answers) || isAnswered(answers, q.id)).length

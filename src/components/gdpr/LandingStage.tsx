@@ -9,7 +9,7 @@ const EXAMPLES = [
 
 interface LandingStageProps {
   onAnalyse: (scenario: string, apiKey: string) => void
-  onGuided: () => void
+  onGuided: (scenario: string) => void
 }
 
 export function LandingStage({ onAnalyse, onGuided }: LandingStageProps) {
@@ -107,7 +107,7 @@ export function LandingStage({ onAnalyse, onGuided }: LandingStageProps) {
               ✦ Analyse with AI
             </button>
             <button
-              onClick={onGuided}
+              onClick={() => onGuided(scenario)}
               disabled={!scenario.trim()}
               className="inline-flex items-center gap-2 rounded-[10px] px-[22px] py-3 text-[#0A0A10] text-[0.82rem] font-bold cursor-pointer border-none transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: 'linear-gradient(135deg, #00E5A0, #00C88A)' }}

@@ -129,7 +129,7 @@ Scenario: ${text}`,
             {stage === 'landing' && (
               <LandingStage
                 onAnalyse={handleAnalyse}
-                onGuided={() => setStage('guided')}
+                onGuided={(text) => { setScenario(text); setStage('guided') }}
               />
             )}
 
@@ -146,7 +146,7 @@ Scenario: ${text}`,
 
             {/* Guided stage manages its own result display internally */}
             {stage === 'guided' && (
-              <GuidedStage onBack={() => setStage('landing')} />
+              <GuidedStage onBack={() => setStage('landing')} scenario={scenario} />
             )}
 
             <div className="pb-10" />
